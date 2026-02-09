@@ -24,6 +24,9 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+# Worktree directory (parallel plan execution)
+.task_factory_worktrees/
+
 # Sensitive files
 .env
 *.key
