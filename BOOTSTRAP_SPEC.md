@@ -15,8 +15,9 @@ ai_factory/
 - plans/ (user implementation plans)
 - runs/ (execution outputs)
 - bin/
-  - run_all.sh (iterate all plans/*.md)
+  - run_all.sh (iterate all plans/*.md sequentially)
   - run_one.sh (execute single plan)
+  - run_parallel.sh (execute plans concurrently via git worktrees)
 - prompts/
   - codex_execute.md (stable executor prompt)
 - schema/
@@ -125,6 +126,75 @@ if [[ ${#failed_plans[@]} -gt 0 ]]; then
   exit 1
 fi
 ```
+
+### bin/run_parallel.sh
+
+Usage: ./bin/run_parallel.sh [plan1.md plan2.md ...]
+
+Environment variables (optional):
+- MAX_JOBS - Max concurrent plan executions (default: 3)
+- MAX_PASSES - Forwarded to run_one.sh
+- CODEX_MODEL - Forwarded to run_one.sh
+- WORKTREE_DIR - Base directory for worktrees (default: sibling directory `../.task_factory_worktrees/`)
+
+Flags:
+- --no-merge - Skip the merge-back phase
+
+Requirements:
+- Bash 3.2+ compatible (no associative arrays)
+- set -euo pipefail
+- Collect plans from args or plans/*.md
+- For each plan, create a git worktree on a temporary branch (`worktree/<plan_name>-<run_id>`)
+- Run the worktree's copy of run_one.sh against the worktree's copy of the plan
+- Copy results (.codex.json, .log) back to the main ai_factory/runs/
+- Poll-based concurrency: track active PIDs, poll with `kill -0`, sleep 0.5s between polls
+- EXIT trap cleans up all worktrees (`git worktree remove --force`) and temporary branches
+- INT/TERM trap kills child processes, then cleanup runs via EXIT
+- Prune stale worktrees from previous interrupted runs on startup
+- Dependencies: git (with worktree support), jq, codex CLI
+
+Execution flow:
+1. Parse --no-merge flag, collect plan paths
+2. Launch up to MAX_JOBS plans concurrently, each in its own worktree
+3. As jobs finish, launch remaining plans to fill slots
+4. Print summary with pass/fail counts
+
+Merge-back phase (after all plans finish):
+1. Sort successful plans alphabetically (same order as run_all.sh)
+2. For each, run `git merge --no-ff worktree/<branch>` into current branch
+3. On merge conflict: abort merge, report conflicting and remaining unmerged plans, exit 1
+4. Failed plans are skipped (not merged) and reported in summary
+5. --no-merge flag skips this phase entirely
+
+Output format:
+```
+=== Parallel plan execution ===
+Plans: 3, Max concurrent: 3
+
+  Started: 001-setup (pid 12345)
+  Started: 002-tests (pid 12346)
+  Started: 003-docs (pid 12347)
+  Finished: 001-setup — OK
+  Finished: 003-docs — OK
+  Finished: 002-tests — FAIL (exit 1)
+
+--------------------------
+Summary: 2/3 passed (15s total)
+Failed:
+  002-tests
+
+=== Merge-back phase ===
+  Merging: 001-setup (worktree/001-setup-12345-1700000000)
+  Merging: 003-docs (worktree/003-docs-12345-1700000000)
+Merged 2 plan(s) successfully.
+```
+
+Key design decisions:
+- Uses run_one.sh unmodified: run_one.sh resolves REPO_ROOT from BASH_SOURCE, so when invoked from a worktree it naturally operates against that worktree's root
+- Parallel indexed arrays instead of associative arrays for bash 3.2 compatibility
+- Empty array guards (`${arr+"${arr[@]}"}`) for set -u compatibility
+- Worktree cleanup is file-based (paths written to temp file) for reliability during signal handling
+- Branch names scoped to RUN_ID (pid + timestamp) to avoid collisions between concurrent runs
 
 ### bin/run_one.sh
 
