@@ -201,6 +201,7 @@ Key design decisions:
 Usage: ./bin/run_one.sh plans/my-plan.md
 
 Environment variables (optional):
+- CODEX_BIN - Path to codex binary (default: resolved from PATH)
 - CODEX_MODEL - Model to use (default: from Codex CLI config)
 - MAX_PASSES - Retry limit (default: 2)
 

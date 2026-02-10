@@ -19,6 +19,13 @@ if [[ ! -f "$PLAN_PATH" ]]; then
   exit 2
 fi
 
+# Resolve codex binary (set CODEX_BIN to override)
+CODEX="${CODEX_BIN:-$(command -v codex 2>/dev/null || echo "")}"
+if [[ -z "$CODEX" || ! -x "$CODEX" ]]; then
+  echo "Error: codex not found. Install it or set CODEX_BIN=/path/to/codex" >&2
+  exit 2
+fi
+
 # Config
 MAX_PASSES="${MAX_PASSES:-2}"
 FACTORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -55,7 +62,7 @@ while [[ $pass -lt $MAX_PASSES ]]; do
   tmp_files+=("$tmp_output")
 
   cd "$REPO_ROOT"
-  if codex exec ${CODEX_MODEL:+--model "$CODEX_MODEL"} --full-auto -        < "$tmp_prompt" > "$tmp_output" 2>&1; then
+  if "$CODEX" exec ${CODEX_MODEL:+--model "$CODEX_MODEL"} --full-auto -        < "$tmp_prompt" > "$tmp_output" 2>&1; then
 
     # Extract JSON (robust: use last ```json block or last {...} block)
     if grep -q '```json' "$tmp_output"; then
